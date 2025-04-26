@@ -78,4 +78,21 @@ router.post('/location/:id', async (req, res) => {
         console.error('Error updating parking space:', error);
     }
 });
+// set state
+router.post('/state/', async (req, res) => {
+    try {
+        console.log('Request set state parking space')
+        console.log('Request body:', req.body);
+        const {id, state } = req.body;
+        const updatedParkingSpace = await ParkingSpace.findByIdAndUpdate(
+            id,
+            { state },
+            { new: true }
+        );
+        res.status(200).json(updatedParkingSpace);
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating parking space', error });
+        console.error('Error updating parking space:', error);
+    }
+});
 module.exports = router;
