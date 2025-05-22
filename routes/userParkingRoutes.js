@@ -6,6 +6,9 @@ router.get('/', async (req, res) => {
     try {
         console.log('Request get user parking:', req.query);
         const { userId } = req.query;
+        if (!userId) {
+            return res.status(400).json({ message: 'User ID is required' });
+        }
         const query = userId ? { userId } : {};
         const userParkings = await UserParking.find(query).populate('userId', 'name email');
         res.json(userParkings);
