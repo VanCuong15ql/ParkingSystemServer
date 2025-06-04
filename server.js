@@ -52,6 +52,7 @@ mqttClient.on('connect', () => {
             console.log('Subscribed to topic: parking/gate_for_exiting');
         }
     });
+    
 });
 
 mqttClient.on('message',async (topic, message) => {
@@ -95,7 +96,8 @@ mqttClient.on('message',async (topic, message) => {
                     console.log('userParking already entered');
                     return;
                 }
-
+                // send topic to MQTT broker to open servor
+                mqttClient.publish('parking/response_gate_for_entering', JSON.stringify({"message": "open"}));
                 // Creat the access management record
                 const accessManage = new AccessManage({
                     uid: user.uid,
@@ -126,6 +128,7 @@ mqttClient.on('message',async (topic, message) => {
                 console.log('Exited User not found or User already entered');
                 return;
             }else{
+                mqttClient.publish('parking/response_gate_for_exiting', JSON.stringify({"message": "open"}));
                 console.log('Exited User found:', accessManageRecord);
                 // Update the access management record
                 accessManageRecord.timeExited = new Date();
