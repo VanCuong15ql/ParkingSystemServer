@@ -22,6 +22,22 @@ const AccessManageSchema = new mongoose.Schema({
         type: Date,
         default: null,
     },
+    plate_text_enter: {
+        type: String,
+        default: null,
+    },
+    plate_image_enter: {
+        type: String,
+        default: null,
+    },
+    plate_text_exit: {
+        type: String,
+        default: null,
+    },
+    plate_image_exit: {
+        type: String,
+        default: null,
+    },
 });
 const AccessManage = mongoose.model('AccessManage', AccessManageSchema);
 module.exports = AccessManage;

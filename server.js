@@ -6,12 +6,17 @@ const userRoutes = require('./routes/userRoutes');
 const parkingSpaceRoutes = require('./routes/parkingSpaceRoutes');
 const userParkingRoutes = require('./routes/userParkingRoutes');
 const accessManageRoutes = require('./routes/accessManageRoutes');
+const zoneRoutes = require('./routes/zoneRoutes');
+const nodeRoutes = require('./routes/nodeRoutes');
+const edgeRoutes = require('./routes/edgeRoutes');
+const gateProcessingRoutes = require('./routes/gateProcessingRoutes');
 const app = express();
 require('dotenv').config();
 const port = process.env.PORT || 5000;
 const mongoURI = process.env.MONGO_URI 
 app.use(cors())
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 const ParkingSpace = require('./models/parkingSpace');
 const UserParking = require('./models/UserParking');
 const AccessManage = require('./models/AccessManage');
@@ -28,7 +33,8 @@ mongoose.connect(mongoURI, {
         console.error('MongoDB connection error:', error);
     });
 // MQTT connection
-const mqttClient = mqtt.connect('http:localhost:1883')
+const mqttClient = mqtt.connect('mqtt://127.0.0.1:1883')
+app.set('mqttClient', mqttClient);
 mqttClient.on('connect', () => {
     console.log('Connected to MQTT broker');
     mqttClient.subscribe('parking/state', (err) => {
@@ -144,6 +150,10 @@ app.use('/users', userRoutes);
 app.use('/parking-spaces', parkingSpaceRoutes);
 app.use('/user-parking', userParkingRoutes);
 app.use('/access-manage', accessManageRoutes);
+app.use('/zones', zoneRoutes);
+app.use('/nodes', nodeRoutes);
+app.use('/edges', edgeRoutes);
+app.use('/gate-processing', gateProcessingRoutes);
 app.get('/', (req, res) => {
     res.send('server is running');
 });

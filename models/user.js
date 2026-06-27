@@ -9,7 +9,16 @@ const UserSchema = new mongoose.Schema({
     password: {
         type: String,
         required: true,
-    }
+    },
+    map: {
+        type: String,
+        default: null,
+    },
+    focusedEntranceId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Node',
+        default: null,
+    },
 }, {
     timestamps: true,
 });

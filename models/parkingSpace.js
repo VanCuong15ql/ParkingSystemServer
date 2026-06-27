@@ -32,6 +32,11 @@ const ParkingSpaceSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true,
+    },
+    zone_id:{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Zone',
+        default: null,
     }},{timestamps: true});
 
 module.exports = mongoose.model('ParkingSpace', ParkingSpaceSchema);
