@@ -29,7 +29,8 @@ router.get('/intersection-slots', async (req, res) => {
             return res.status(400).json({ message: 'userId is required' });
         }
 
-        const results = await getIntersectionSlotCounts(userId, focusedEntranceId || null);
+        const mqttClient = req.app.get('mqttClient');
+        const results = await getIntersectionSlotCounts(userId, focusedEntranceId || null, mqttClient);
         res.status(200).json(results);
     } catch (error) {
         res.status(500).json({ message: 'Error calculating intersection slots', error });

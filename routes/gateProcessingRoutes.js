@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const AccessManage = require('../models/AccessManage');
 const UserParking = require('../models/UserParking');
+const Notification = require('../models/Notification');
 const { processPlateImage } = require('../utils/plateImageProcessor');
 
 const router = express.Router();
@@ -61,21 +62,50 @@ router.post('/entering', upload.single('file'), async (req, res) => {
             );
         } catch (error) {
             console.error('Plate image processing error (entering):', error);
-            return res.status(422).json({
-                message: 'Xử lý ảnh biển số thất bại',
-                error: error.message,
-                requireCheck: true,
+            
+            // Still open gate even if image processing fails
+            publishGateOpen(getMqttClient(req), 'parking/response_gate_for_entering');
+
+            // Convert original image buffer to base64
+            const originalImageBase64 = req.file.buffer.toString('base64');
+
+            const accessManage = new AccessManage({
+                uid: user.uid,
+                userId: user.userId,
+                userParkingId: user._id,
+                timeEntered: new Date(),
+                plate_text_enter: '',
+                plate_image_enter: originalImageBase64,
+            });
+            await accessManage.save();
+
+            // Create notification for error
+            const notification = new Notification({
+                accessManageId: accessManage._id,
+                errorMessage: 'lỗi xử lý ảnh ở cổng vào',
+                errorType: 'ErrorEnter',
+            });
+            await notification.save();
+
+            return res.status(201).json({
+                message: 'Vào cổng thành công (có lỗi xử lý ảnh)',
+                accessManage,
+                hasError: true,
             });
         }
 
         publishGateOpen(getMqttClient(req), 'parking/response_gate_for_entering');
+
+        // Convert original image buffer to base64
+        const originalImageBase64 = req.file.buffer.toString('base64');
 
         const accessManage = new AccessManage({
             uid: user.uid,
             userId: user.userId,
             userParkingId: user._id,
             timeEntered: new Date(),
-            plate_image_enter: plateResult.plate_image,
+            plate_text_enter: plateResult.plate_text,
+            plate_image_enter: originalImageBase64,
         });
         await accessManage.save();
 
@@ -121,6 +151,22 @@ router.post('/exiting', upload.single('file'), async (req, res) => {
             );
         } catch (error) {
             console.error('Plate image processing error (exiting):', error);
+            
+            // Convert original image buffer to base64
+            const originalImageBase64 = req.file.buffer.toString('base64');
+
+            // Save image but do NOT open gate
+            accessManageRecord.plate_image_exit = originalImageBase64;
+            await accessManageRecord.save();
+
+            // Create notification for error
+            const notification = new Notification({
+                accessManageId: accessManageRecord._id,
+                errorMessage: 'lỗi xử lý ảnh ở cổng ra',
+                errorType: 'ErrorExit',
+            });
+            await notification.save();
+
             return res.status(422).json({
                 message: 'Xử lý ảnh biển số thất bại',
                 error: error.message,
@@ -128,11 +174,41 @@ router.post('/exiting', upload.single('file'), async (req, res) => {
             });
         }
 
+        // Check if plate text matches
+        if (accessManageRecord.plate_text_enter && plateResult.plate_text && 
+            accessManageRecord.plate_text_enter !== plateResult.plate_text) {
+            
+            // Convert original image buffer to base64
+            const originalImageBase64 = req.file.buffer.toString('base64');
+
+            accessManageRecord.timeExited = new Date();
+            accessManageRecord.plate_text_exit = plateResult.plate_text;
+            accessManageRecord.plate_image_exit = originalImageBase64;
+            await accessManageRecord.save();
+
+            // Create notification for plate mismatch
+            const notification = new Notification({
+                accessManageId: accessManageRecord._id,
+                errorMessage: 'lỗi biển số xe không khớp',
+                errorType: 'ErrorExit',
+            });
+            await notification.save();
+
+            return res.status(422).json({
+                message: 'Biển số xe không khớp',
+                error: 'Biển số xe không khớp',
+                requireCheck: true,
+            });
+        }
 
         publishGateOpen(getMqttClient(req), 'parking/response_gate_for_exiting');
 
+        // Convert original image buffer to base64
+        const originalImageBase64 = req.file.buffer.toString('base64');
+
         accessManageRecord.timeExited = new Date();
-        accessManageRecord.plate_image_exit = plateResult.plate_image;
+        accessManageRecord.plate_text_exit = plateResult.plate_text;
+        accessManageRecord.plate_image_exit = originalImageBase64;
         await accessManageRecord.save();
 
         res.status(200).json({

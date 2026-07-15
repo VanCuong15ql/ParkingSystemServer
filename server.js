@@ -10,6 +10,9 @@ const zoneRoutes = require('./routes/zoneRoutes');
 const nodeRoutes = require('./routes/nodeRoutes');
 const edgeRoutes = require('./routes/edgeRoutes');
 const gateProcessingRoutes = require('./routes/gateProcessingRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const { getIntersectionSlotCounts } = require('./utils/pathfindingService');
+const { initializeSocket, emitParkingSpacesUpdate } = require('./socket/socket');
 const app = express();
 require('dotenv').config();
 const port = process.env.PORT || 5000;
@@ -33,7 +36,7 @@ mongoose.connect(mongoURI, {
         console.error('MongoDB connection error:', error);
     });
 // MQTT connection
-const mqttClient = mqtt.connect('mqtt://127.0.0.1:1883')
+const mqttClient = mqtt.connect('mqtt://broker.emqx.io')
 app.set('mqttClient', mqttClient);
 mqttClient.on('connect', () => {
     console.log('Connected to MQTT broker');
@@ -69,12 +72,36 @@ mqttClient.on('message',async (topic, message) => {
             // Handle the received message here
             // For example, update the parking space state in the database
             const { id, state } = data;
-            const updatedParkingSpace = await ParkingSpace.findByIdAndUpdate(
-                id,
-                { state },
-                { new: true }
-            );
-            console.log('Updated parking space:', updatedParkingSpace);
+            
+            // Check current state in database
+            const currentParkingSpace = await ParkingSpace.findById(id);
+            if (!currentParkingSpace) {
+                console.log('Parking space not found:', id);
+                return;
+            }
+            
+            // Only update and recalculate if state actually changed
+            if (currentParkingSpace.state !== state) {
+                const updatedParkingSpace = await ParkingSpace.findByIdAndUpdate(
+                    id,
+                    { state },
+                    { new: true }
+                );
+                console.log('Updated parking space:', updatedParkingSpace);
+
+                // Emit parking spaces update via socket
+                try {
+                    const allParkingSpaces = await ParkingSpace.find({ userId: currentParkingSpace.userId });
+                    emitParkingSpacesUpdate(currentParkingSpace.userId, allParkingSpaces);
+                } catch (error) {
+                    console.error('Error emitting parking spaces update:', error);
+                }
+
+                // Recalculate intersection slots when state changes
+                await getIntersectionSlotCounts(currentParkingSpace.userId, null, mqttClient);
+            } else {
+                console.log('State unchanged, skipping update');
+            }
         } catch (error) {
             console.error('Error updating parking space:', error);
         }
@@ -154,10 +181,14 @@ app.use('/zones', zoneRoutes);
 app.use('/nodes', nodeRoutes);
 app.use('/edges', edgeRoutes);
 app.use('/gate-processing', gateProcessingRoutes);
+app.use('/notifications', notificationRoutes);
 app.get('/', (req, res) => {
     res.send('server is running');
 });
-app.listen(port, () => {
+const server = app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
+
+// Initialize Socket.io
+initializeSocket(server);
 

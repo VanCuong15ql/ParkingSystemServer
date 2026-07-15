@@ -111,6 +111,7 @@ async function processPlateImage(fileBuffer, originalName, mimeType) {
     }
 
     return {
+        plate_text: result.plate_text || '',
         plate_image: result.image_crop_base64 || '',
     };
 }

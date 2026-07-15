@@ -2,6 +2,7 @@ const Node = require('../models/Node');
 const Edge = require('../models/Edge');
 const ParkingSpace = require('../models/parkingSpace');
 const User = require('../models/user');
+const { emitIntersectionSlotsUpdate } = require('../socket/socket');
 
 function buildAdjacency(edges) {
     const graph = new Map();
@@ -116,7 +117,7 @@ async function resolveFocusedEntranceId(userId, focusedEntranceId) {
     return firstEntrance ? String(firstEntrance._id) : null;
 }
 
-async function getIntersectionSlotCounts(userId, focusedEntranceId = null) {
+async function getIntersectionSlotCounts(userId, focusedEntranceId = null, mqttClient = null) {
     const [nodes, edges, parkingSpaces, activeEntranceId] = await Promise.all([
         Node.find({ userId }).populate('zoneId', 'zone_name'),
         Edge.find({ userId }),
@@ -164,6 +165,24 @@ async function getIntersectionSlotCounts(userId, focusedEntranceId = null) {
                     return zoneId && zoneIds.has(zoneId) && space.state === 'available';
                 }).length;
 
+                // Publish to MQTT topic parking/availableSlots
+                if (mqttClient && mqttClient.connected) {
+                    // Find the Edge between intersectionId and neighborId
+                    const edge = edges.find(e => 
+                        (String(e.fromNode) === intersectionId && String(e.toNode) === neighborId) ||
+                        (String(e.fromNode) === neighborId && String(e.toNode) === intersectionId)
+                    );
+                    
+                    if (edge) {
+                        const message = {
+                            id: String(edge._id),
+                            availableSlots
+                        };
+                        mqttClient.publish('parking/availableSlots', JSON.stringify(message));
+                        console.log(`Published to parking/availableSlots:`, message);
+                    }
+                }
+
                 return {
                     neighborNodeId: neighborId,
                     neighborName: neighbor?.name || neighbor?.type || 'Node',
@@ -181,6 +200,15 @@ async function getIntersectionSlotCounts(userId, focusedEntranceId = null) {
             focusedEntranceId: activeEntranceId,
             directions,
         });
+    }
+
+    // Emit update via socket to the specific user
+    try {
+        console.log('[pathfindingService] Attempting to emit intersectionSlotsUpdate for userId:', userId);
+        emitIntersectionSlotsUpdate(userId, results);
+        console.log('[pathfindingService] Successfully emitted intersectionSlotsUpdate');
+    } catch (error) {
+        console.error('[pathfindingService] Error emitting socket update:', error);
     }
 
     return results;
