@@ -60,9 +60,6 @@ router.post('/entering', upload.single('file'), async (req, res) => {
             return res.status(400).json({ message: 'Cần gửi file ảnh hoặc imageUrl' });
         }
 
-        // Track if imageUrl was used (to avoid sending large base64 image back to ESP32)
-        const usedImageUrl = !!imageUrl;
-
         // Get image data from file or URL
         let imageData;
         if (imageUrl) {
@@ -102,8 +99,8 @@ router.post('/entering', upload.single('file'), async (req, res) => {
             // Still open gate even if image processing fails
             publishGateOpen(getMqttClient(req), 'parking/response_gate_for_entering');
 
-            // Convert original image buffer to base64 (only if not using imageUrl)
-            const originalImageBase64 = usedImageUrl ? '' : imageData.buffer.toString('base64');
+            // Convert original image buffer to base64
+            const originalImageBase64 = imageData.buffer.toString('base64');
 
             const accessManage = new AccessManage({
                 uid: user.uid,
@@ -123,27 +120,16 @@ router.post('/entering', upload.single('file'), async (req, res) => {
             });
             await notification.save();
 
-            // Return response without plate_image if imageUrl was used
-            const responseAccessManage = usedImageUrl ? {
-                _id: accessManage._id,
-                uid: accessManage.uid,
-                userId: accessManage.userId,
-                userParkingId: accessManage.userParkingId,
-                timeEntered: accessManage.timeEntered,
-                plate_text_enter: accessManage.plate_text_enter,
-            } : accessManage;
-
             return res.status(201).json({
                 message: 'Vào cổng thành công (có lỗi xử lý ảnh)',
-                accessManage: responseAccessManage,
                 hasError: true,
             });
         }
 
         publishGateOpen(getMqttClient(req), 'parking/response_gate_for_entering');
 
-        // Convert original image buffer to base64 (only if not using imageUrl)
-        const originalImageBase64 = usedImageUrl ? '' : imageData.buffer.toString('base64');
+        // Convert original image buffer to base64
+        const originalImageBase64 = imageData.buffer.toString('base64');
 
         const accessManage = new AccessManage({
             uid: user.uid,
@@ -155,19 +141,8 @@ router.post('/entering', upload.single('file'), async (req, res) => {
         });
         await accessManage.save();
 
-        // Return response without plate_image if imageUrl was used
-        const responseAccessManage = usedImageUrl ? {
-            _id: accessManage._id,
-            uid: accessManage.uid,
-            userId: accessManage.userId,
-            userParkingId: accessManage.userParkingId,
-            timeEntered: accessManage.timeEntered,
-            plate_text_enter: accessManage.plate_text_enter,
-        } : accessManage;
-
         res.status(201).json({
-            message: 'Vào cổng thành công',
-            accessManage: responseAccessManage,
+            message: 'Vào cổng thành công'
         });
     } catch (error) {
         console.error('Error gate entering:', error);
@@ -190,9 +165,6 @@ router.post('/exiting', upload.single('file'), async (req, res) => {
         if (!req.file && !imageUrl) {
             return res.status(400).json({ message: 'Cần gửi file ảnh hoặc imageUrl' });
         }
-
-        // Track if imageUrl was used (to avoid sending large base64 image back to ESP32)
-        const usedImageUrl = !!imageUrl;
 
         // Get image data from file or URL
         let imageData;
@@ -225,8 +197,8 @@ router.post('/exiting', upload.single('file'), async (req, res) => {
         } catch (error) {
             console.error('Plate image processing error (exiting):', error);
 
-            // Convert original image buffer to base64 (only if not using imageUrl)
-            const originalImageBase64 = usedImageUrl ? '' : imageData.buffer.toString('base64');
+            // Convert original image buffer to base64
+            const originalImageBase64 = imageData.buffer.toString('base64');
 
             // Save image but do NOT open gate
             accessManageRecord.plate_image_exit = originalImageBase64;
@@ -240,22 +212,10 @@ router.post('/exiting', upload.single('file'), async (req, res) => {
             });
             await notification.save();
 
-            // Return response without plate_image if imageUrl was used
-            const responseAccessManage = usedImageUrl ? {
-                _id: accessManageRecord._id,
-                uid: accessManageRecord.uid,
-                userId: accessManageRecord.userId,
-                timeEntered: accessManageRecord.timeEntered,
-                timeExited: accessManageRecord.timeExited,
-                plate_text_enter: accessManageRecord.plate_text_enter,
-                plate_text_exit: accessManageRecord.plate_text_exit,
-            } : accessManageRecord;
-
             return res.status(422).json({
                 message: 'Xử lý ảnh biển số thất bại',
                 error: error.message,
                 requireCheck: true,
-                accessManage: responseAccessManage,
             });
         }
 
@@ -263,8 +223,8 @@ router.post('/exiting', upload.single('file'), async (req, res) => {
         if (accessManageRecord.plate_text_enter && plateResult.plate_text &&
             accessManageRecord.plate_text_enter !== plateResult.plate_text) {
 
-            // Convert original image buffer to base64 (only if not using imageUrl)
-            const originalImageBase64 = usedImageUrl ? '' : imageData.buffer.toString('base64');
+            // Convert original image buffer to base64
+            const originalImageBase64 = imageData.buffer.toString('base64');
 
             accessManageRecord.timeExited = new Date();
             accessManageRecord.plate_text_exit = plateResult.plate_text;
@@ -279,49 +239,25 @@ router.post('/exiting', upload.single('file'), async (req, res) => {
             });
             await notification.save();
 
-            // Return response without plate_image if imageUrl was used
-            const responseAccessManage = usedImageUrl ? {
-                _id: accessManageRecord._id,
-                uid: accessManageRecord.uid,
-                userId: accessManageRecord.userId,
-                timeEntered: accessManageRecord.timeEntered,
-                timeExited: accessManageRecord.timeExited,
-                plate_text_enter: accessManageRecord.plate_text_enter,
-                plate_text_exit: accessManageRecord.plate_text_exit,
-            } : accessManageRecord;
-
             return res.status(422).json({
                 message: 'Biển số xe không khớp',
                 error: 'Biển số xe không khớp',
                 requireCheck: true,
-                accessManage: responseAccessManage,
             });
         }
 
         publishGateOpen(getMqttClient(req), 'parking/response_gate_for_exiting');
 
-        // Convert original image buffer to base64 (only if not using imageUrl)
-        const originalImageBase64 = usedImageUrl ? '' : imageData.buffer.toString('base64');
+        // Convert original image buffer to base64
+        const originalImageBase64 = imageData.buffer.toString('base64');
 
         accessManageRecord.timeExited = new Date();
         accessManageRecord.plate_text_exit = plateResult.plate_text;
         accessManageRecord.plate_image_exit = originalImageBase64;
         await accessManageRecord.save();
 
-        // Return response without plate_image if imageUrl was used
-        const responseAccessManage = usedImageUrl ? {
-            _id: accessManageRecord._id,
-            uid: accessManageRecord.uid,
-            userId: accessManageRecord.userId,
-            timeEntered: accessManageRecord.timeEntered,
-            timeExited: accessManageRecord.timeExited,
-            plate_text_enter: accessManageRecord.plate_text_enter,
-            plate_text_exit: accessManageRecord.plate_text_exit,
-        } : accessManageRecord;
-
         res.status(200).json({
-            message: 'Ra cổng thành công',
-            accessManage: responseAccessManage,
+            message: 'Ra cổng thành công'
         });
     } catch (error) {
         console.error('Error gate exiting:', error);
