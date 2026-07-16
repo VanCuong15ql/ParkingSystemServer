@@ -1,5 +1,6 @@
 const express = require('express');
 const multer = require('multer');
+const axios = require('axios');
 const AccessManage = require('../models/AccessManage');
 const UserParking = require('../models/UserParking');
 const Notification = require('../models/Notification');
@@ -28,15 +29,47 @@ function publishGateOpen(mqttClient, topic) {
     }
 }
 
+// Helper function to download image from URL and convert to buffer
+async function downloadImageFromUrl(imageUrl) {
+    try {
+        const response = await axios.get(imageUrl, {
+            responseType: 'arraybuffer',
+            timeout: 10000,
+        });
+        return {
+            buffer: Buffer.from(response.data),
+            originalname: 'image.jpg',
+            mimetype: response.headers['content-type'] || 'image/jpeg',
+        };
+    } catch (error) {
+        console.error('Error downloading image from URL:', error);
+        throw new Error('Không thể tải ảnh từ URL');
+    }
+}
+
 router.post('/entering', upload.single('file'), async (req, res) => {
     try {
-        const { userId, uid } = req.body;
+        const { userId, uid, imageUrl } = req.body;
 
         if (!userId || !uid) {
             return res.status(400).json({ message: 'userId và uid là bắt buộc' });
         }
-        if (!req.file) {
-            return res.status(400).json({ message: 'File gửi lên không phải là ảnh hợp lệ' });
+
+        // Check if we have imageUrl or file upload
+        if (!req.file && !imageUrl) {
+            return res.status(400).json({ message: 'Cần gửi file ảnh hoặc imageUrl' });
+        }
+
+        // Get image data from file or URL
+        let imageData;
+        if (imageUrl) {
+            imageData = await downloadImageFromUrl(imageUrl);
+        } else {
+            imageData = {
+                buffer: req.file.buffer,
+                originalname: req.file.originalname,
+                mimetype: req.file.mimetype,
+            };
         }
 
         const user = await UserParking.findOne({ uid, userId });
@@ -56,18 +89,18 @@ router.post('/entering', upload.single('file'), async (req, res) => {
         let plateResult;
         try {
             plateResult = await processPlateImage(
-                req.file.buffer,
-                req.file.originalname,
-                req.file.mimetype
+                imageData.buffer,
+                imageData.originalname,
+                imageData.mimetype
             );
         } catch (error) {
             console.error('Plate image processing error (entering):', error);
-            
+
             // Still open gate even if image processing fails
             publishGateOpen(getMqttClient(req), 'parking/response_gate_for_entering');
 
             // Convert original image buffer to base64
-            const originalImageBase64 = req.file.buffer.toString('base64');
+            const originalImageBase64 = imageData.buffer.toString('base64');
 
             const accessManage = new AccessManage({
                 uid: user.uid,
@@ -97,7 +130,7 @@ router.post('/entering', upload.single('file'), async (req, res) => {
         publishGateOpen(getMqttClient(req), 'parking/response_gate_for_entering');
 
         // Convert original image buffer to base64
-        const originalImageBase64 = req.file.buffer.toString('base64');
+        const originalImageBase64 = imageData.buffer.toString('base64');
 
         const accessManage = new AccessManage({
             uid: user.uid,
@@ -115,7 +148,7 @@ router.post('/entering', upload.single('file'), async (req, res) => {
         });
     } catch (error) {
         console.error('Error gate entering:', error);
-        if (error.message === 'File gửi lên không phải là ảnh hợp lệ') {
+        if (error.message === 'File gửi lên không phải là ảnh hợp lệ' || error.message === 'Không thể tải ảnh từ URL') {
             return res.status(400).json({ message: error.message });
         }
         res.status(500).json({ message: 'Lỗi xử lý cổng vào', error: error.message });
@@ -124,13 +157,27 @@ router.post('/entering', upload.single('file'), async (req, res) => {
 
 router.post('/exiting', upload.single('file'), async (req, res) => {
     try {
-        const { userId, uid } = req.body;
+        const { userId, uid, imageUrl } = req.body;
 
         if (!userId || !uid) {
             return res.status(400).json({ message: 'userId và uid là bắt buộc' });
         }
-        if (!req.file) {
-            return res.status(400).json({ message: 'File gửi lên không phải là ảnh hợp lệ' });
+
+        // Check if we have imageUrl or file upload
+        if (!req.file && !imageUrl) {
+            return res.status(400).json({ message: 'Cần gửi file ảnh hoặc imageUrl' });
+        }
+
+        // Get image data from file or URL
+        let imageData;
+        if (imageUrl) {
+            imageData = await downloadImageFromUrl(imageUrl);
+        } else {
+            imageData = {
+                buffer: req.file.buffer,
+                originalname: req.file.originalname,
+                mimetype: req.file.mimetype,
+            };
         }
 
         const accessManageRecord = await AccessManage.findOne({
@@ -145,15 +192,15 @@ router.post('/exiting', upload.single('file'), async (req, res) => {
         let plateResult;
         try {
             plateResult = await processPlateImage(
-                req.file.buffer,
-                req.file.originalname,
-                req.file.mimetype
+                imageData.buffer,
+                imageData.originalname,
+                imageData.mimetype
             );
         } catch (error) {
             console.error('Plate image processing error (exiting):', error);
-            
+
             // Convert original image buffer to base64
-            const originalImageBase64 = req.file.buffer.toString('base64');
+            const originalImageBase64 = imageData.buffer.toString('base64');
 
             // Save image but do NOT open gate
             accessManageRecord.plate_image_exit = originalImageBase64;
@@ -175,11 +222,11 @@ router.post('/exiting', upload.single('file'), async (req, res) => {
         }
 
         // Check if plate text matches
-        if (accessManageRecord.plate_text_enter && plateResult.plate_text && 
+        if (accessManageRecord.plate_text_enter && plateResult.plate_text &&
             accessManageRecord.plate_text_enter !== plateResult.plate_text) {
-            
+
             // Convert original image buffer to base64
-            const originalImageBase64 = req.file.buffer.toString('base64');
+            const originalImageBase64 = imageData.buffer.toString('base64');
 
             accessManageRecord.timeExited = new Date();
             accessManageRecord.plate_text_exit = plateResult.plate_text;
@@ -204,7 +251,7 @@ router.post('/exiting', upload.single('file'), async (req, res) => {
         publishGateOpen(getMqttClient(req), 'parking/response_gate_for_exiting');
 
         // Convert original image buffer to base64
-        const originalImageBase64 = req.file.buffer.toString('base64');
+        const originalImageBase64 = imageData.buffer.toString('base64');
 
         accessManageRecord.timeExited = new Date();
         accessManageRecord.plate_text_exit = plateResult.plate_text;
@@ -217,7 +264,7 @@ router.post('/exiting', upload.single('file'), async (req, res) => {
         });
     } catch (error) {
         console.error('Error gate exiting:', error);
-        if (error.message === 'File gửi lên không phải là ảnh hợp lệ') {
+        if (error.message === 'File gửi lên không phải là ảnh hợp lệ' || error.message === 'Không thể tải ảnh từ URL') {
             return res.status(400).json({ message: error.message });
         }
         res.status(500).json({ message: 'Lỗi xử lý cổng ra', error: error.message });
